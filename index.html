@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TaskLog</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Personal timestamp-based task logger">
+  <meta name="theme-color" content="#1a1a1a">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TaskLog">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+  <link rel="apple-touch-startup-image" href="icons/apple-splash-2048x2732.png"
+        media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)">
+  <link rel="apple-touch-startup-image" href="icons/apple-splash-1170x2532.png"
+        media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)">
+  <link rel="apple-touch-startup-image" href="icons/apple-splash-1284x2778.png"
+        media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
+
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+</head>
+<body data-theme="sakura">
+  <header id="topbar">
+    <button id="prevMonth" class="iconbtn" aria-label="Previous month">‹</button>
+    <button id="monthLabel" class="monthbtn" aria-label="Current month">…</button>
+    <button id="nextMonth" class="iconbtn" aria-label="Next month">›</button>
+    <input id="search" type="search" placeholder="Search all months… (try: tag:foo)" autocomplete="off">
+    <button id="newBtn" class="primary" aria-label="New entry">+ New</button>
+    <button id="settingsBtn" class="iconbtn" aria-label="Settings">⚙</button>
+  </header>
+
+  <div id="tagbar" hidden></div>
+
+  <main id="timeline">
+    <div id="emptyState" class="empty">
+      <p>No entries yet for this month.</p>
+      <p class="hint">Tap <strong>+ New</strong> to add one.</p>
+    </div>
+  </main>
+
+  <div id="status" class="status" hidden></div>
+
+  <!-- iOS install hint -->
+  <div id="iosHint" class="banner" hidden>
+    Install: tap <strong>Share</strong> → <strong>Add to Home Screen</strong>.
+    <button id="iosHintClose" aria-label="Dismiss">×</button>
+  </div>
+
+  <!-- Composer modal -->
+  <dialog id="composer">
+    <form method="dialog" id="composerForm">
+      <header class="composerHead">
+        <strong>New entry</strong>
+        <span id="composerTime" class="ts">--:--</span>
+        <button type="button" id="composerCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <input id="composerHeading" type="text" placeholder="Heading" required>
+      <textarea id="composerBody" placeholder="Markdown body. Paste images here. Use #tags." rows="8"></textarea>
+      <div id="composerThumbs" class="thumbs"></div>
+      <footer class="composerFoot">
+        <label class="filebtn">
+          + Image
+          <input id="composerFiles" type="file" accept="image/*" multiple hidden>
+        </label>
+        <button type="button" id="composerPreview" class="iconbtn" title="Toggle preview">⎚</button>
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="composerSave">Save</button>
+      </footer>
+      <div id="composerPreviewPane" class="preview" hidden></div>
+    </form>
+  </dialog>
+
+  <!-- Settings modal -->
+  <dialog id="settings">
+    <form method="dialog" id="settingsForm">
+      <header class="composerHead">
+        <strong>Settings</strong>
+        <button type="button" id="settingsCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <label>GitHub repo (owner/name)
+        <input id="settingsRepo" type="text" placeholder="yourname/task-log-data" required>
+      </label>
+      <label>Default branch
+        <input id="settingsBranch" type="text" placeholder="main" value="main">
+      </label>
+      <label>Personal Access Token (fine-grained)
+        <input id="settingsPat" type="password" placeholder="github_pat_…" required>
+      </label>
+      <label>Theme
+        <select id="settingsTheme">
+          <option value="sakura">Sakura</option>
+          <option value="monokai">Monokai</option>
+          <option value="ember">Ember</option>
+          <option value="forest">Forest</option>
+          <option value="solarized">Solarized Light</option>
+        </select>
+      </label>
+      <div id="settingsStatus" class="settingsStatus"></div>
+      <footer class="composerFoot">
+        <button type="button" id="settingsTest">Test connection</button>
+        <button type="button" id="settingsRefreshIndex">Refresh search index</button>
+        <button type="button" id="settingsExport">Export current month</button>
+        <span class="grow"></span>
+        <button type="submit" class="primary">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Lightbox -->
+  <dialog id="lightbox" class="lightbox">
+    <img id="lightboxImg" alt="">
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(console.error);
+      });
+    }
+  </script>
+</body>
+</html>
