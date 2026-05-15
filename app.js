@@ -56,34 +56,44 @@ const state = {
 };
 
 // ----- Utilities -----
+// Timestamps are stored as UTC ISO strings (sortable), but all day/month
+// grouping derives from LOCAL time so entries land on the day the user sees.
+const pad2 = n => String(n).padStart(2, '0');
+
+// Self-contained (no pad2 dep) because it runs during `state` initialization,
+// before the pad2 const above is in scope.
 function monthKey(d) {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthOf(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function dayKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 function fmtMonth(key) {
   const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return new Date(y, m - 1, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' });
 }
 function shiftMonth(key, delta) {
   const [y, m] = key.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return monthKey(d);
+  return monthKey(new Date(y, m - 1 + delta, 1));
 }
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
 }
-function fmtDayHead(iso) {
-  const d = new Date(iso);
-  const today = new Date(); today.setHours(0,0,0,0);
-  const dd = new Date(d); dd.setHours(0,0,0,0);
-  const days = Math.round((today - dd) / 86400000);
+function fmtDayHead(dayStr) {
+  const [y, m, dd] = dayStr.split('-').map(Number);
+  const d = new Date(y, m - 1, dd);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - d) / 86400000);
   const label = d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
   if (days === 0) return `Today · ${label}`;
   if (days === 1) return `Yesterday · ${label}`;
   return label;
 }
-function dayKey(iso) { return iso.slice(0, 10); }
 function uid(ts) {
   const r = Math.random().toString(36).slice(2, 6);
   return `${ts}-${r}`;
@@ -399,7 +409,7 @@ els.composerForm.addEventListener('submit', async ev => {
     // 3) Append to month JSON and save. The month is decided by entry timestamp,
     //    not by the currently viewed month — that way late-night entries land in
     //    the right file.
-    const targetMonth = ts.slice(0, 7);
+    const targetMonth = monthOf(ts);
     let monthEntries = state.currentMonth === targetMonth ? state.entries : await gh.loadMonth(targetMonth);
     monthEntries = [...monthEntries, entry];
     await gh.saveMonth(targetMonth, monthEntries);

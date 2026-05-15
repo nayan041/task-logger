@@ -141,27 +141,27 @@ export async function listMonths() {
     .sort((a, b) => b.localeCompare(a));
 }
 
-export function rawImageUrl(path) {
-  // Returns a URL we can fetch and turn into an object URL via blob (auth'd).
-  // For private repos, raw.githubusercontent.com requires the PAT. We use the
-  // Contents API instead and decode the base64 to a blob.
-  return path; // resolved on demand by fetchImageBlob
-}
-
 const imgCache = new Map();
 export async function fetchImageBlob(path) {
   if (imgCache.has(path)) return imgCache.get(path);
-  const file = await getFile(path);
-  if (!file) throw new Error(`Image not found: ${path}`);
+  const { branch } = settings();
+  const url = `${repoUrl(path)}?ref=${encodeURIComponent(branch)}`;
+  // Raw media type returns the file bytes directly. The default JSON response
+  // returns EMPTY content for files over 1MB — which most screenshots exceed.
+  const res = await fetch(url, {
+    headers: { ...headers(), 'Accept': 'application/vnd.github.raw' },
+  });
+  if (!res.ok) throw new Error(`Image fetch ${path} → ${res.status}`);
+  const buf = await res.arrayBuffer();
   const ext = path.split('.').pop().toLowerCase();
   const mime = ext === 'png' ? 'image/png'
             : ext === 'gif' ? 'image/gif'
             : ext === 'webp' ? 'image/webp'
             : 'image/jpeg';
-  const blob = new Blob([file.bytes], { type: mime });
-  const url = URL.createObjectURL(blob);
-  imgCache.set(path, url);
-  return url;
+  const blob = new Blob([buf], { type: mime });
+  const objUrl = URL.createObjectURL(blob);
+  imgCache.set(path, objUrl);
+  return objUrl;
 }
 
 export async function testConnection() {

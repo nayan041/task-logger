@@ -1,6 +1,6 @@
 // Service worker — caches the app shell for offline open. Network-only for
 // GitHub API and raw content (data must always be fresh).
-const VERSION = 'tasklog-v1';
+const VERSION = 'tasklog-v2';
 const SHELL = [
   './',
   './index.html',
