@@ -43,10 +43,12 @@ html, body {
   font-family: var(--sans);
   font-size: 15px; line-height: 1.5;
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;          /* prevent iOS PWA horizontal scroll */
+  max-width: 100vw;
 }
 body {
   min-height: 100vh;
-  padding-top: env(safe-area-inset-top);
+  /* safe-area top is handled by #topbar's padding — no double inset */
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
@@ -326,15 +328,25 @@ dialog label:not(.filebtn):not(.chk) {
   font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-right: 4px;
 }
 
-/* ===== Entry action buttons (edit / delete) ===== */
+/* ===== Entry action buttons (edit / delete) — hidden by default ===== */
 .entryhead { display: flex; align-items: flex-start; gap: 6px; }
 .entryhead .heading { flex: 1; margin: 0 0 4px; }
-.actions { display: flex; gap: 2px; flex-shrink: 0; }
+.actions {
+  display: flex; gap: 2px; flex-shrink: 0;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s;
+}
 .actions button {
   background: none; border: 0; cursor: pointer; font-size: 13px;
   color: var(--muted); padding: 2px 5px; border-radius: 6px; line-height: 1;
 }
 .actions button:hover { background: var(--surface-2); color: var(--text); }
+/* Show on desktop hover or mobile tap (JS adds .show-actions) */
+.entry:hover .actions, .frecord:hover .actions, .memitem:hover .actions,
+.entry.show-actions .actions, .frecord.show-actions .actions,
+.memitem.show-actions .actions {
+  opacity: 1; pointer-events: auto;
+}
 .frecord .actions { margin-top: 4px; }
 
 /* ===== Memory items ===== */
@@ -387,7 +399,9 @@ dialog label:not(.filebtn):not(.chk) {
 /* ===== Print output ===== */
 #printArea { display: none; }
 @media print {
+  html, body { height: auto; min-height: 0; overflow: visible; padding: 0; margin: 0; }
   body > *:not(#printArea) { display: none !important; }
+  dialog, .fab, .banner, .status { display: none !important; }
   #printArea { display: block !important; color: #000; background: #fff; padding: 0; }
   #printArea h1 { font-size: 18px; margin: 0 0 4px; }
   #printArea .prange { color: #555; font-size: 12px; margin-bottom: 12px; }
@@ -408,12 +422,54 @@ dialog label:not(.filebtn):not(.chk) {
   #printArea img { max-width: 260px; max-height: 190px; margin: 3px 0; }
 }
 
+/* ===== FAB (floating action button — mobile only) ===== */
+.fab {
+  display: none;
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  right: 20px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--accent); color: white;
+  border: 0; font-size: 28px; font-weight: 300;
+  box-shadow: 0 4px 14px rgba(0,0,0,.28);
+  cursor: pointer; z-index: 40;
+  line-height: 1; text-align: center;
+}
+.fab:active { transform: scale(0.92); }
+
+/* ===== Date/time row in composers ===== */
+.daterow { display: flex; gap: 10px; }
+.daterow label { flex: 1; }
+.daterow input { width: 100%; }
+
+/* ===== Daily prompt banner ===== */
+#journalPrompt {
+  gap: 10px;
+}
+#journalPrompt .primary.small {
+  padding: 5px 10px; font-size: 13px;
+}
+
 /* Mobile tweaks */
 @media (max-width: 540px) {
   #topbar { flex-wrap: wrap; }
   #topbar #search { order: 10; flex-basis: 100%; }
   #topbar .monthbtn { min-width: 90px; }
+  /* Stack view tabs on their own full-width row */
+  #viewSwitch {
+    order: 9; flex-basis: 100%;
+    display: flex; flex-direction: column;
+    border-radius: var(--radius);
+  }
+  #viewSwitch button {
+    flex: 1; padding: 8px 12px; text-align: center;
+  }
+  /* FAB replaces top-bar New button */
+  .fab { display: flex; align-items: center; justify-content: center; }
+  #newBtn { display: none !important; }
   .entry { grid-template-columns: 44px 1fr; gap: 8px; }
   .frecord { grid-template-columns: 40px 1fr auto; gap: 8px; }
   .frow { flex-direction: column; }
+  #timeline { padding-bottom: 100px; }   /* space for FAB */
 }

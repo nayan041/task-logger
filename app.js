@@ -56,6 +56,17 @@ const els = {
   settingsPrint: $('settingsPrint'), settingsRefreshIndex: $('settingsRefreshIndex'),
   // lightbox
   lightbox: $('lightbox'), lightboxImg: $('lightboxImg'),
+  // editable timestamps in composers
+  composerDateRow: $('composerDateRow'), composerDate: $('composerDate'),
+  financeDateRow: $('financeDateRow'), financeDate: $('financeDate'),
+  // FAB + daily prompt
+  fab: $('fab'),
+  journalPrompt: $('journalPrompt'),
+  journalPromptWrite: $('journalPromptWrite'),
+  journalPromptDismiss: $('journalPromptDismiss'),
+  // settings prompt
+  settingsPrompt: $('settingsPrompt'), settingsPromptTime: $('settingsPromptTime'),
+  promptTimeRow: $('promptTimeRow'),
 };
 
 // ----- State -----
@@ -122,6 +133,11 @@ function fmtTaka(n) {
 }
 function uid(ts) {
   return `${ts}-${Math.random().toString(36).slice(2, 6)}`;
+}
+// Convert ISO timestamp to datetime-local input value (local time).
+function isoToLocalInput(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 function genId(prefix) {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -354,6 +370,18 @@ function openLightbox(src) {
 }
 els.lightbox.onclick = () => els.lightbox.close();
 
+// ----- Tap-to-reveal actions (mobile) -----
+els.timeline.addEventListener('click', ev => {
+  const article = ev.target.closest('article.entry, article.frecord, article.memitem');
+  if (!article) return;
+  // Don't toggle if clicking a button, link, or image (those have their own handlers)
+  if (ev.target.closest('button, a, img')) return;
+  const wasShowing = article.classList.contains('show-actions');
+  // Hide all other revealed actions first
+  els.timeline.querySelectorAll('.show-actions').forEach(el => el.classList.remove('show-actions'));
+  if (!wasShowing) article.classList.add('show-actions');
+});
+
 // ----- Search -----
 let searchTimer = null;
 els.search.addEventListener('input', () => {
@@ -556,9 +584,21 @@ async function loadMemoryData() {
   renderEmpty('Loading…');
   try {
     state.memory = await gh.loadMemory();
+    // Cache for offline use
+    try { localStorage.setItem('taskLogger.memoryCache', JSON.stringify(state.memory)); } catch {}
     renderMemoryView();
   } catch (e) {
     console.error(e);
+    // Try loading from offline cache
+    try {
+      const cached = localStorage.getItem('taskLogger.memoryCache');
+      if (cached) {
+        state.memory = JSON.parse(cached);
+        renderMemoryView();
+        toast('Offline — showing cached memory.', '');
+        return;
+      }
+    } catch {}
     renderEmpty('Could not load memory. You may be offline.');
   }
 }
@@ -663,6 +703,7 @@ els.memoryForm.addEventListener('submit', async ev => {
     }
     await gh.saveMemory(items);
     state.memory = items;
+    try { localStorage.setItem('taskLogger.memoryCache', JSON.stringify(items)); } catch {}
     state.editing = null;
     els.memoryComposer.close();
     toast('Saved.', 'ok');
@@ -682,6 +723,7 @@ async function deleteMemory(item) {
     const items = (await gh.loadMemory()).filter(x => x.id !== item.id);
     await gh.saveMemory(items);
     state.memory = items;
+    try { localStorage.setItem('taskLogger.memoryCache', JSON.stringify(items)); } catch {}
     renderMemoryView();
     toast('Deleted.', 'ok');
   } catch (e) {
@@ -884,28 +926,48 @@ async function saveEdit(kind, fields) {
     uploaded.push({ path, alt: '' });
   }
   const images = [...state.keptImages, ...uploaded];
+  // Use updated timestamp if provided, otherwise keep original
+  const ts = fields.ts || ed.ts;
+  const newMonth = monthOf(ts);
+  const movedMonth = newMonth !== ed.month;
+
   let entry;
   if (kind === 'note') {
     entry = {
-      id: ed.id, ts: ed.ts, heading: fields.heading, body: fields.body,
+      id: ed.id, ts, heading: fields.heading, body: fields.body,
       tags: [...new Set([...extractTags(fields.heading), ...extractTags(fields.body)])],
       images,
     };
   } else {
     entry = {
-      id: ed.id, ts: ed.ts, type: fields.type, category: fields.category,
+      id: ed.id, ts, type: fields.type, category: fields.category,
       subcategory: fields.subcategory, amount: fields.amount, note: fields.note,
       tags: fields.tags, images,
     };
   }
-  const all = await gh.loadMonth(ed.month, folder);
-  const idx = all.findIndex(x => x.id === ed.id);
-  if (idx >= 0) all[idx] = entry; else all.push(entry);
-  await gh.saveMonth(ed.month, all, folder);
-  if (kind === 'note') searchMod.upsertEntry(entry, ed.month);
+
+  if (movedMonth) {
+    // Timestamp changed to a different month — remove from old, add to new
+    const oldAll = await gh.loadMonth(ed.month, folder);
+    await gh.saveMonth(ed.month, oldAll.filter(x => x.id !== ed.id), folder, [ed.id]);
+    const newAll = await gh.loadMonth(newMonth, folder);
+    newAll.push(entry);
+    await gh.saveMonth(newMonth, newAll, folder);
+  } else {
+    const all = await gh.loadMonth(ed.month, folder);
+    const idx = all.findIndex(x => x.id === ed.id);
+    if (idx >= 0) all[idx] = entry; else all.push(entry);
+    await gh.saveMonth(ed.month, all, folder);
+  }
+  if (kind === 'note') searchMod.upsertEntry(entry, newMonth);
   cleanupPendingImages();
   (kind === 'finance' ? els.financeComposer : els.composer).close();
   state.editing = null;
+  // If the entry moved months, navigate to the new month
+  if (movedMonth) {
+    state.currentMonth = newMonth;
+    els.monthLabel.textContent = fmtMonth(newMonth);
+  }
   toast('Updated.', 'ok');
   refresh();
 }
@@ -1019,6 +1081,9 @@ function openComposer(editEntry = null) {
     els.composerHeading.value = editEntry.heading || '';
     els.composerBody.value = editEntry.body || '';
     els.composerTime.textContent = fmtTime(editEntry.ts);
+    // Show editable date/time
+    els.composerDateRow.hidden = false;
+    els.composerDate.value = isoToLocalInput(editEntry.ts);
     for (const img of (editEntry.images || [])) addKeptImageThumb(img, els.composerThumbs);
   } else {
     state.editing = null;
@@ -1026,6 +1091,9 @@ function openComposer(editEntry = null) {
     els.composerHeading.value = '';
     els.composerBody.value = '';
     els.composerTime.textContent = fmtClock();
+    // Show date/time for new entries too (defaults to now, adjustable)
+    els.composerDateRow.hidden = false;
+    els.composerDate.value = isoToLocalInput(new Date().toISOString());
   }
   els.composer.showModal();
   setTimeout(() => els.composerHeading.focus(), 50);
@@ -1049,9 +1117,11 @@ els.composerForm.addEventListener('submit', async ev => {
   els.composerSave.disabled = true;
   try {
     if (state.editing && state.editing.kind === 'note') {
-      await saveEdit('note', { heading, body });
+      // Use edited timestamp if the date field was changed
+      const newTs = els.composerDate.value ? new Date(els.composerDate.value).toISOString() : state.editing.ts;
+      await saveEdit('note', { heading, body, ts: newTs });
     } else {
-      const ts = new Date().toISOString();
+      const ts = els.composerDate.value ? new Date(els.composerDate.value).toISOString() : new Date().toISOString();
       const tags = [...new Set([...extractTags(heading), ...extractTags(body)])];
       const entry = { id: uid(ts), ts, heading, body, tags, images: [] };
       const targetMonth = monthOf(ts);
@@ -1134,6 +1204,8 @@ function openFinanceComposer(editEntry = null) {
     els.financeTagsInput.value = (editEntry.tags || []).join(' ');
     els.financeNote.value = editEntry.note || '';
     els.financeTime.textContent = fmtTime(editEntry.ts);
+    els.financeDateRow.hidden = false;
+    els.financeDate.value = isoToLocalInput(editEntry.ts);
     for (const img of (editEntry.images || [])) addKeptImageThumb(img, els.financeThumbs);
   } else {
     state.editing = null;
@@ -1145,6 +1217,8 @@ function openFinanceComposer(editEntry = null) {
     els.financeTagsInput.value = '';
     els.financeNote.value = '';
     els.financeTime.textContent = fmtClock();
+    els.financeDateRow.hidden = false;
+    els.financeDate.value = isoToLocalInput(new Date().toISOString());
   }
   els.financeComposer.showModal();
 }
@@ -1163,9 +1237,10 @@ els.financeForm.addEventListener('submit', async ev => {
       .split(/[\s,]+/).map(t => t.replace(/^#/, '').toLowerCase()).filter(Boolean);
     const tags = [...new Set([...inputTags, ...extractTags(note)])];
     if (state.editing && state.editing.kind === 'finance') {
-      await saveEdit('finance', { type: state.financeType, category, subcategory, amount, note, tags });
+      const newTs = els.financeDate.value ? new Date(els.financeDate.value).toISOString() : state.editing.ts;
+      await saveEdit('finance', { type: state.financeType, category, subcategory, amount, note, tags, ts: newTs });
     } else {
-      const ts = new Date().toISOString();
+      const ts = els.financeDate.value ? new Date(els.financeDate.value).toISOString() : new Date().toISOString();
       const record = {
         id: uid(ts), ts, type: state.financeType,
         category, subcategory, amount, note, tags, images: [],
@@ -1190,6 +1265,7 @@ function openNew() {
   else openComposer();
 }
 els.newBtn.onclick = openNew;
+els.fab.onclick = openNew;
 
 // ===================================================================
 // PRINT / EXPORT
@@ -1334,10 +1410,17 @@ function openSettings() {
   els.settingsBranch.value = s.branch || 'main';
   els.settingsPat.value = s.pat || '';
   els.settingsTheme.value = localStorage.getItem('taskLogger.theme') || 'sakura';
+  // Daily prompt
+  els.settingsPrompt.checked = localStorage.getItem('taskLogger.promptEnabled') === '1';
+  els.settingsPromptTime.value = localStorage.getItem('taskLogger.promptTime') || '21:00';
+  els.promptTimeRow.hidden = !els.settingsPrompt.checked;
   els.settingsStatus.textContent = '';
   els.settingsStatus.className = 'settingsStatus';
   els.settings.showModal();
 }
+els.settingsPrompt.onchange = () => {
+  els.promptTimeRow.hidden = !els.settingsPrompt.checked;
+};
 els.settingsBtn.onclick = openSettings;
 els.settingsCancel.onclick = () => els.settings.close();
 els.settingsForm.addEventListener('submit', ev => {
@@ -1348,10 +1431,14 @@ els.settingsForm.addEventListener('submit', ev => {
     branch: els.settingsBranch.value.trim() || 'main',
   });
   applyTheme(els.settingsTheme.value);
+  // Save daily prompt settings
+  localStorage.setItem('taskLogger.promptEnabled', els.settingsPrompt.checked ? '1' : '0');
+  localStorage.setItem('taskLogger.promptTime', els.settingsPromptTime.value || '21:00');
   searchMod.reset();
   els.settings.close();
   loadCategoriesConfig().then(refresh);
   flushQueue();
+  checkDailyPrompt();
   toast('Settings saved.', 'ok');
 });
 els.settingsTest.onclick = async () => {
@@ -1391,6 +1478,36 @@ els.iosHintClose.onclick = () => {
   els.iosHint.hidden = true;
 };
 
+// ===================================================================
+// DAILY JOURNAL PROMPT
+// ===================================================================
+function checkDailyPrompt() {
+  const enabled = localStorage.getItem('taskLogger.promptEnabled') === '1';
+  if (!enabled) { els.journalPrompt.hidden = true; return; }
+  const time = localStorage.getItem('taskLogger.promptTime') || '21:00';
+  const today = ymd(new Date());
+  const dismissed = localStorage.getItem('taskLogger.promptDismissed');
+  if (dismissed === today) { els.journalPrompt.hidden = true; return; }
+  const now = new Date();
+  const [h, m] = time.split(':').map(Number);
+  const promptAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+  if (now >= promptAt) {
+    els.journalPrompt.hidden = false;
+  }
+}
+els.journalPromptWrite.onclick = () => {
+  els.journalPrompt.hidden = true;
+  localStorage.setItem('taskLogger.promptDismissed', ymd(new Date()));
+  if (state.view !== 'notes') setView('notes');
+  openComposer();
+};
+els.journalPromptDismiss.onclick = () => {
+  els.journalPrompt.hidden = true;
+  localStorage.setItem('taskLogger.promptDismissed', ymd(new Date()));
+};
+// Re-check every 60s while the app is open.
+setInterval(checkDailyPrompt, 60000);
+
 // ----- Keyboard shortcuts -----
 document.addEventListener('keydown', ev => {
   if (ev.target.matches('input,textarea,select')) return;
@@ -1406,4 +1523,5 @@ maybeShowIosHint();
   await updatePendingBadge();
   setView(localStorage.getItem('taskLogger.view') || 'notes');
   flushQueue();
+  checkDailyPrompt();
 })();

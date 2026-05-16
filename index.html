@@ -63,6 +63,13 @@
     <button id="iosHintClose" aria-label="Dismiss">×</button>
   </div>
 
+  <!-- Daily journal prompt banner -->
+  <div id="journalPrompt" class="banner" hidden>
+    <span>Time for your daily journal!</span>
+    <button id="journalPromptWrite" class="primary small">Write now</button>
+    <button id="journalPromptDismiss" aria-label="Dismiss">×</button>
+  </div>
+
   <!-- Note composer -->
   <dialog id="composer">
     <form method="dialog" id="composerForm">
@@ -72,6 +79,11 @@
         <button type="button" id="composerCancel" class="iconbtn" aria-label="Close">×</button>
       </header>
       <input id="composerHeading" type="text" placeholder="Heading" required>
+      <div id="composerDateRow" class="daterow" hidden>
+        <label>Date & time
+          <input id="composerDate" type="datetime-local">
+        </label>
+      </div>
       <textarea id="composerBody" placeholder="Markdown body. Paste images here. Use #tags." rows="8"></textarea>
       <div id="composerThumbs" class="thumbs"></div>
       <footer class="composerFoot">
@@ -98,6 +110,11 @@
       <div class="seg typeSeg" id="financeType">
         <button type="button" data-ftype="expense" class="active">Expense</button>
         <button type="button" data-ftype="income">Income</button>
+      </div>
+      <div id="financeDateRow" class="daterow" hidden>
+        <label>Date & time
+          <input id="financeDate" type="datetime-local">
+        </label>
       </div>
       <div class="frow">
         <label>Category
@@ -223,6 +240,14 @@
           <option value="solarized">Solarized Light</option>
         </select>
       </label>
+      <label class="chk">
+        <input id="settingsPrompt" type="checkbox"> Daily journal prompt
+      </label>
+      <div id="promptTimeRow" hidden>
+        <label>Prompt time
+          <input id="settingsPromptTime" type="time" value="21:00">
+        </label>
+      </div>
       <div id="settingsStatus" class="settingsStatus"></div>
       <footer class="composerFoot composerFootWrap">
         <button type="button" id="settingsTest">Test connection</button>
@@ -242,6 +267,9 @@
 
   <!-- Print output (hidden on screen, shown only when printing) -->
   <div id="printArea"></div>
+
+  <!-- FAB (mobile floating action button) -->
+  <button id="fab" class="fab" aria-label="New entry">+</button>
 
   <script type="module" src="app.js"></script>
   <script>
