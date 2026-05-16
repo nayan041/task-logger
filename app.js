@@ -59,14 +59,15 @@ const els = {
   // editable timestamps in composers
   composerDateRow: $('composerDateRow'), composerDate: $('composerDate'),
   financeDateRow: $('financeDateRow'), financeDate: $('financeDate'),
-  // FAB + daily prompt
-  fab: $('fab'),
+  // FAB + speed-dial menu + daily prompt
+  fab: $('fab'), fabMenu: $('fabMenu'),
   journalPrompt: $('journalPrompt'),
   journalPromptWrite: $('journalPromptWrite'),
   journalPromptDismiss: $('journalPromptDismiss'),
-  // settings prompt
+  // settings prompt + image size
   settingsPrompt: $('settingsPrompt'), settingsPromptTime: $('settingsPromptTime'),
   promptTimeRow: $('promptTimeRow'),
+  settingsImageSize: $('settingsImageSize'),
 };
 
 // ----- State -----
@@ -839,13 +840,45 @@ function thumbForBlob(item, thumbsEl) {
   };
   thumbsEl.appendChild(wrap);
 }
-function addPendingImage(file, thumbsEl) {
+// Resize image blob if a max dimension is configured.
+function resizeImageBlob(blob, maxDim) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { width, height } = img;
+      if (width <= maxDim && height <= maxDim) { resolve(blob); return; }
+      const scale = maxDim / Math.max(width, height);
+      const w = Math.round(width * scale);
+      const h = Math.round(height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        b => resolve(b || blob),
+        blob.type === 'image/png' ? 'image/png' : 'image/jpeg',
+        0.85
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(blob); };
+    img.src = url;
+  });
+}
+
+async function addPendingImage(file, thumbsEl) {
   const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const name = `${ts}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const item = { blob: file, name, url: URL.createObjectURL(file) };
+  const url = URL.createObjectURL(file);
+  const item = { blob: file, name, url };
   state.pendingImages.push(item);
   thumbForBlob(item, thumbsEl);
+  // Resize in background if configured (thumb shows immediately)
+  const maxDim = parseInt(localStorage.getItem('taskLogger.imageMaxDim') || '0', 10);
+  if (maxDim > 0) {
+    item.blob = await resizeImageBlob(file, maxDim);
+  }
 }
 // Existing (already-uploaded) image shown while editing; removable.
 function addKeptImageThumb(ref, thumbsEl) {
@@ -1265,7 +1298,28 @@ function openNew() {
   else openComposer();
 }
 els.newBtn.onclick = openNew;
-els.fab.onclick = openNew;
+
+// FAB speed-dial menu (mobile)
+let fabOpen = false;
+function toggleFab(open) {
+  fabOpen = open !== undefined ? open : !fabOpen;
+  els.fabMenu.hidden = !fabOpen;
+  els.fab.classList.toggle('open', fabOpen);
+}
+els.fab.onclick = () => toggleFab();
+els.fabMenu.querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    toggleFab(false);
+    const a = b.dataset.fab;
+    if (a === 'note') openComposer();
+    else if (a === 'finance') openFinanceComposer();
+    else if (a === 'memory') openMemoryComposer();
+  };
+});
+// Close menu when tapping elsewhere
+document.addEventListener('click', ev => {
+  if (fabOpen && !ev.target.closest('.fab, .fab-menu')) toggleFab(false);
+});
 
 // ===================================================================
 // PRINT / EXPORT
@@ -1410,6 +1464,7 @@ function openSettings() {
   els.settingsBranch.value = s.branch || 'main';
   els.settingsPat.value = s.pat || '';
   els.settingsTheme.value = localStorage.getItem('taskLogger.theme') || 'sakura';
+  els.settingsImageSize.value = localStorage.getItem('taskLogger.imageMaxDim') || '0';
   // Daily prompt
   els.settingsPrompt.checked = localStorage.getItem('taskLogger.promptEnabled') === '1';
   els.settingsPromptTime.value = localStorage.getItem('taskLogger.promptTime') || '21:00';
@@ -1431,6 +1486,7 @@ els.settingsForm.addEventListener('submit', ev => {
     branch: els.settingsBranch.value.trim() || 'main',
   });
   applyTheme(els.settingsTheme.value);
+  localStorage.setItem('taskLogger.imageMaxDim', els.settingsImageSize.value);
   // Save daily prompt settings
   localStorage.setItem('taskLogger.promptEnabled', els.settingsPrompt.checked ? '1' : '0');
   localStorage.setItem('taskLogger.promptTime', els.settingsPromptTime.value || '21:00');

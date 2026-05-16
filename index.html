@@ -240,6 +240,14 @@
           <option value="solarized">Solarized Light</option>
         </select>
       </label>
+      <label>Max image size
+        <select id="settingsImageSize">
+          <option value="0">Original (no resize)</option>
+          <option value="2000">Large (2000px max)</option>
+          <option value="1200">Medium (1200px max)</option>
+          <option value="800">Small (800px max)</option>
+        </select>
+      </label>
       <label class="chk">
         <input id="settingsPrompt" type="checkbox"> Daily journal prompt
       </label>
@@ -268,7 +276,12 @@
   <!-- Print output (hidden on screen, shown only when printing) -->
   <div id="printArea"></div>
 
-  <!-- FAB (mobile floating action button) -->
+  <!-- FAB (mobile floating action button) with speed-dial menu -->
+  <div id="fabMenu" class="fab-menu" hidden>
+    <button type="button" data-fab="note">📝 Note</button>
+    <button type="button" data-fab="finance">💰 Finance</button>
+    <button type="button" data-fab="memory">🧠 Memory</button>
+  </div>
   <button id="fab" class="fab" aria-label="New entry">+</button>
 
   <script type="module" src="app.js"></script>

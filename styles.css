@@ -399,10 +399,25 @@ dialog label:not(.filebtn):not(.chk) {
 /* ===== Print output ===== */
 #printArea { display: none; }
 @media print {
-  html, body { height: auto; min-height: 0; overflow: visible; padding: 0; margin: 0; }
-  body > *:not(#printArea) { display: none !important; }
-  dialog, .fab, .banner, .status { display: none !important; }
-  #printArea { display: block !important; color: #000; background: #fff; padding: 0; }
+  html, body {
+    height: auto !important; min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important; margin: 0 !important;
+    max-width: none !important;
+    background: white !important;
+  }
+  body > *:not(#printArea) {
+    display: none !important;
+    position: static !important;
+    visibility: hidden !important;
+    height: 0 !important; overflow: hidden !important;
+  }
+  #printArea {
+    display: block !important;
+    visibility: visible !important;
+    color: #000; background: #fff; padding: 0;
+    position: static !important;
+  }
   #printArea h1 { font-size: 18px; margin: 0 0 4px; }
   #printArea .prange { color: #555; font-size: 12px; margin-bottom: 12px; }
   #printArea h2 {
@@ -433,10 +448,34 @@ dialog label:not(.filebtn):not(.chk) {
   background: var(--accent); color: white;
   border: 0; font-size: 28px; font-weight: 300;
   box-shadow: 0 4px 14px rgba(0,0,0,.28);
-  cursor: pointer; z-index: 40;
+  cursor: pointer; z-index: 41;
   line-height: 1; text-align: center;
+  transition: transform 0.2s;
 }
 .fab:active { transform: scale(0.92); }
+.fab.open { transform: rotate(45deg); }
+
+/* FAB speed-dial menu */
+.fab-menu {
+  position: fixed;
+  bottom: calc(90px + env(safe-area-inset-bottom));
+  right: 20px;
+  display: flex; flex-direction: column; gap: 8px;
+  z-index: 40;
+}
+.fab-menu button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  font: inherit; font-size: 14px; font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.fab-menu button:active { background: var(--surface-2); }
 
 /* ===== Date/time row in composers ===== */
 .daterow { display: flex; gap: 10px; }
@@ -453,18 +492,29 @@ dialog label:not(.filebtn):not(.chk) {
 
 /* Mobile tweaks */
 @media (max-width: 540px) {
-  #topbar { flex-wrap: wrap; }
-  #topbar #search { order: 10; flex-basis: 100%; }
-  #topbar .monthbtn { min-width: 90px; }
-  /* Stack view tabs on their own full-width row */
+  #topbar { flex-wrap: wrap; gap: 4px 6px; }
+  /* Row 1: month nav fills width */
+  #topbar .monthbtn { flex: 1; min-width: 80px; }
+  #pendingBadge { order: 2; }
+  /* Force line break between month nav (order ≤2) and tabs (order 8) */
+  #topbar::before {
+    content: ''; order: 7; flex-basis: 100%; height: 0;
+  }
+  /* Row 2: tabs + settings icon — horizontal scroll on their own row */
   #viewSwitch {
-    order: 9; flex-basis: 100%;
-    display: flex; flex-direction: column;
-    border-radius: var(--radius);
+    order: 8;
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex; flex-direction: row;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
-  #viewSwitch button {
-    flex: 1; padding: 8px 12px; text-align: center;
-  }
+  #viewSwitch::-webkit-scrollbar { display: none; }
+  #viewSwitch button { flex: 1; padding: 8px 12px; white-space: nowrap; text-align: center; }
+  #settingsBtn { order: 8; flex: 0 0 auto; }
+  /* Row 3: search full width */
+  #topbar #search { order: 10; flex-basis: 100%; }
   /* FAB replaces top-bar New button */
   .fab { display: flex; align-items: center; justify-content: center; }
   #newBtn { display: none !important; }
