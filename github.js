@@ -81,8 +81,10 @@ export async function putFile(path, bytes, message) {
   return json.content;
 }
 
-export async function loadMonth(yyyymm) {
-  const path = `logs/${yyyymm}.json`;
+// Month files live under a folder: 'logs' for notes, 'finance' for finance
+// records. Both share the same JSON-array shape (objects with id + ts).
+export async function loadMonth(yyyymm, folder = 'logs') {
+  const path = `${folder}/${yyyymm}.json`;
   const file = await getFile(path);
   if (!file) return [];
   try {
@@ -93,24 +95,41 @@ export async function loadMonth(yyyymm) {
   }
 }
 
-export async function saveMonth(yyyymm, entries) {
-  const path = `logs/${yyyymm}.json`;
+export async function saveMonth(yyyymm, entries, folder = 'logs') {
+  const path = `${folder}/${yyyymm}.json`;
   const sorted = [...entries].sort((a, b) => a.ts.localeCompare(b.ts));
   const bytes = utf8encode(JSON.stringify(sorted, null, 2) + '\n');
   try {
-    return await putFile(path, bytes, `log: ${entries.length} entries (${yyyymm})`);
+    return await putFile(path, bytes, `${folder}: ${entries.length} entries (${yyyymm})`);
   } catch (e) {
     if (e.status === 409 || e.status === 422) {
       // Conflict: re-fetch, merge by id, retry once.
       shaCache.delete(path);
-      const remote = await loadMonth(yyyymm);
+      const remote = await loadMonth(yyyymm, folder);
       const merged = mergeById(remote, entries);
       const mergedSorted = merged.sort((a, b) => a.ts.localeCompare(b.ts));
       const mergedBytes = utf8encode(JSON.stringify(mergedSorted, null, 2) + '\n');
-      return await putFile(path, mergedBytes, `log: merge conflict resolved (${yyyymm})`);
+      return await putFile(path, mergedBytes, `${folder}: merge conflict resolved (${yyyymm})`);
     }
     throw e;
   }
+}
+
+// ----- Categories config (single shared file, syncs across devices) -----
+export async function loadCategories() {
+  const file = await getFile('config/categories.json');
+  if (!file) return {};
+  try {
+    return JSON.parse(utf8decode(file.bytes));
+  } catch (e) {
+    console.error('Bad categories.json', e);
+    return {};
+  }
+}
+
+export async function saveCategories(obj) {
+  const bytes = utf8encode(JSON.stringify(obj, null, 2) + '\n');
+  return putFile('config/categories.json', bytes, 'config: update categories');
 }
 
 function mergeById(remote, local) {
@@ -123,17 +142,28 @@ function mergeById(remote, local) {
 export async function uploadImage(blob, filename) {
   const path = `images/${filename}`;
   const buf = new Uint8Array(await blob.arrayBuffer());
-  await putFile(path, buf, `image: ${filename}`);
+  try {
+    await putFile(path, buf, `image: ${filename}`);
+  } catch (e) {
+    if (e.status === 409 || e.status === 422) {
+      // File already exists (e.g. an offline upload that was retried).
+      // Fetch its sha so the PUT counts as an update, then retry once.
+      await getFile(path);
+      await putFile(path, buf, `image: ${filename} (update)`);
+    } else {
+      throw e;
+    }
+  }
   return path;
 }
 
-export async function listMonths() {
-  // Lists files under logs/. Returns array of YYYY-MM strings, descending.
+export async function listMonths(folder = 'logs') {
+  // Lists YYYY-MM month files under a folder. Returns strings, newest first.
   const { branch } = settings();
-  const url = `${repoUrl('logs')}?ref=${encodeURIComponent(branch)}`;
+  const url = `${repoUrl(folder)}?ref=${encodeURIComponent(branch)}`;
   const res = await fetch(url, { headers: headers() });
   if (res.status === 404) return [];
-  if (!res.ok) throw new Error(`LIST logs/ → ${res.status}`);
+  if (!res.ok) throw new Error(`LIST ${folder}/ → ${res.status}`);
   const items = await res.json();
   return items
     .filter(i => i.type === 'file' && /^\d{4}-\d{2}\.json$/.test(i.name))

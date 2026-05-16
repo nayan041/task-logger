@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>TaskLog</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Personal timestamp-based task logger">
+  <meta name="description" content="Personal timestamp-based task & finance logger">
   <meta name="theme-color" content="#1a1a1a">
 
   <link rel="manifest" href="manifest.webmanifest">
@@ -31,18 +31,27 @@
     <button id="prevMonth" class="iconbtn" aria-label="Previous month">‹</button>
     <button id="monthLabel" class="monthbtn" aria-label="Current month">…</button>
     <button id="nextMonth" class="iconbtn" aria-label="Next month">›</button>
-    <input id="search" type="search" placeholder="Search all months… (try: tag:foo)" autocomplete="off">
+    <div id="viewSwitch" class="seg" role="tablist">
+      <button type="button" data-view="notes" class="active">Notes</button>
+      <button type="button" data-view="finance">Finance</button>
+    </div>
+    <input id="search" type="search" placeholder="Search notes… (try: tag:foo)" autocomplete="off">
+    <button id="pendingBadge" class="iconbtn pending" hidden aria-label="Pending sync">⏳ 0</button>
     <button id="newBtn" class="primary" aria-label="New entry">+ New</button>
     <button id="settingsBtn" class="iconbtn" aria-label="Settings">⚙</button>
   </header>
 
+  <!-- Notes: tag filter chips -->
   <div id="tagbar" hidden></div>
 
+  <!-- Finance: summary + filters -->
+  <div id="financebar" hidden>
+    <div id="financeSummary" class="financeSummary"></div>
+    <div id="financeFilters" class="financeFilters"></div>
+  </div>
+
   <main id="timeline">
-    <div id="emptyState" class="empty">
-      <p>No entries yet for this month.</p>
-      <p class="hint">Tap <strong>+ New</strong> to add one.</p>
-    </div>
+    <div class="empty"><p>Loading…</p></div>
   </main>
 
   <div id="status" class="status" hidden></div>
@@ -53,11 +62,11 @@
     <button id="iosHintClose" aria-label="Dismiss">×</button>
   </div>
 
-  <!-- Composer modal -->
+  <!-- Note composer -->
   <dialog id="composer">
     <form method="dialog" id="composerForm">
       <header class="composerHead">
-        <strong>New entry</strong>
+        <strong>New note</strong>
         <span id="composerTime" class="ts">--:--</span>
         <button type="button" id="composerCancel" class="iconbtn" aria-label="Close">×</button>
       </header>
@@ -77,7 +86,90 @@
     </form>
   </dialog>
 
-  <!-- Settings modal -->
+  <!-- Finance composer -->
+  <dialog id="financeComposer">
+    <form method="dialog" id="financeForm">
+      <header class="composerHead">
+        <strong>New finance record</strong>
+        <span id="financeTime" class="ts">--:--</span>
+        <button type="button" id="financeCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <div class="seg typeSeg" id="financeType">
+        <button type="button" data-ftype="expense" class="active">Expense</button>
+        <button type="button" data-ftype="income">Income</button>
+      </div>
+      <div class="frow">
+        <label>Category
+          <select id="financeCategorySel" required></select>
+        </label>
+        <label>Subcategory
+          <select id="financeSubcategorySel"></select>
+        </label>
+      </div>
+      <label>Amount (৳)
+        <input id="financeAmount" type="number" step="0.01" min="0" required placeholder="0.00" inputmode="decimal">
+      </label>
+      <label>Tags (optional, space-separated)
+        <input id="financeTagsInput" type="text" placeholder="e.g. weekly groceries">
+      </label>
+      <textarea id="financeNote" placeholder="Note (optional, Markdown). Paste images here." rows="3"></textarea>
+      <div id="financeThumbs" class="thumbs"></div>
+      <div id="financeHint" class="settingsStatus"></div>
+      <footer class="composerFoot">
+        <label class="filebtn">
+          + Image
+          <input id="financeFiles" type="file" accept="image/*" multiple hidden>
+        </label>
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="financeSave">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Categories manager -->
+  <dialog id="categories">
+    <form method="dialog" id="categoriesForm">
+      <header class="composerHead">
+        <strong>Manage categories</strong>
+        <button type="button" id="categoriesCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <p class="hint">Categories and subcategories are shared across all your devices.</p>
+      <div id="categoriesList"></div>
+      <div class="frow">
+        <input id="newCategoryInput" type="text" placeholder="New category name">
+        <button type="button" id="addCategoryBtn">Add category</button>
+      </div>
+      <div id="categoriesStatus" class="settingsStatus"></div>
+      <footer class="composerFoot">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="categoriesSave">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Print / export -->
+  <dialog id="printDialog">
+    <form method="dialog" id="printForm">
+      <header class="composerHead">
+        <strong>Print / Export records</strong>
+        <button type="button" id="printCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <p class="hint">Choose a date range. The browser print dialog can save it as a PDF.</p>
+      <div class="frow">
+        <label>From <input id="printFrom" type="date"></label>
+        <label>To <input id="printTo" type="date"></label>
+      </div>
+      <label class="chk"><input id="printNotes" type="checkbox" checked> Include notes</label>
+      <label class="chk"><input id="printFinance" type="checkbox" checked> Include finance records</label>
+      <div id="printStatus" class="settingsStatus"></div>
+      <footer class="composerFoot">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="printGo">Prepare &amp; print</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Settings -->
   <dialog id="settings">
     <form method="dialog" id="settingsForm">
       <header class="composerHead">
@@ -103,10 +195,11 @@
         </select>
       </label>
       <div id="settingsStatus" class="settingsStatus"></div>
-      <footer class="composerFoot">
+      <footer class="composerFoot composerFootWrap">
         <button type="button" id="settingsTest">Test connection</button>
+        <button type="button" id="settingsCategories">Manage categories</button>
+        <button type="button" id="settingsPrint">Print / Export</button>
         <button type="button" id="settingsRefreshIndex">Refresh search index</button>
-        <button type="button" id="settingsExport">Export current month</button>
         <span class="grow"></span>
         <button type="submit" class="primary">Save</button>
       </footer>
@@ -117,6 +210,9 @@
   <dialog id="lightbox" class="lightbox">
     <img id="lightboxImg" alt="">
   </dialog>
+
+  <!-- Print output (hidden on screen, shown only when printing) -->
+  <div id="printArea"></div>
 
   <script type="module" src="app.js"></script>
   <script>

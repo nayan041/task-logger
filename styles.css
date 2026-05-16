@@ -203,13 +203,14 @@ dialog form { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 }
 .composerHead .ts { color: var(--muted); font-family: var(--mono); font-size: 13px; }
 .composerHead .iconbtn { margin-left: auto; }
-#composerHeading, #composerBody,
-#settings input, #settings select {
+dialog input:not([type=checkbox]):not([type=file]),
+dialog select, dialog textarea {
   font: inherit; padding: 8px 10px;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg); color: var(--text); width: 100%;
 }
-#composerBody { font-family: var(--mono); font-size: 14px; resize: vertical; min-height: 140px; }
+#composerBody, #financeNote { font-family: var(--mono); font-size: 14px; resize: vertical; }
+#composerBody { min-height: 140px; }
 .composerFoot {
   display: flex; align-items: center; gap: 8px;
   padding-top: 10px; border-top: 1px solid var(--border);
@@ -235,7 +236,7 @@ dialog form { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
   border: 1px dashed var(--border); border-radius: var(--radius);
   padding: 10px; background: var(--bg); max-height: 300px; overflow-y: auto;
 }
-#settings label {
+dialog label:not(.filebtn):not(.chk) {
   display: flex; flex-direction: column; gap: 4px;
   font-size: 13px; color: var(--muted);
 }
@@ -250,10 +251,141 @@ dialog form { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .lightbox::backdrop { background: rgba(0,0,0,.85); }
 .lightbox img { max-width: 95vw; max-height: 95vh; display: block; border-radius: 6px; }
 
+/* ===== Segmented controls (view switch, income/expense) ===== */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.seg button {
+  background: var(--surface); color: var(--muted);
+  border: 0; padding: 6px 12px; cursor: pointer; font: inherit;
+}
+.seg button.active { background: var(--accent); color: #fff; }
+.typeSeg { width: 100%; }
+.typeSeg button { flex: 1; }
+
+/* ===== Pending sync badge ===== */
+.iconbtn.pending {
+  background: #fff3d6; color: #8a6500; border: 1px solid #f0d8a0;
+  font-size: 13px; font-weight: 600;
+}
+
+/* ===== Finance bar (summary + filters) ===== */
+#financebar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.financeSummary {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 10px 14px; font-size: 14px;
+  max-width: 760px; margin: 0 auto;
+}
+.financeSummary .lbl { color: var(--muted); margin-right: 4px; }
+.amt-income { color: #1f8a3b; font-weight: 600; }
+.amt-expense { color: #c52f2f; font-weight: 600; }
+.amt-net { font-weight: 700; }
+.financeFilters {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding: 0 14px 10px; max-width: 760px; margin: 0 auto;
+}
+.financeFilters select {
+  width: auto; padding: 5px 8px;
+}
+
+/* ===== Finance record ===== */
+.frecord {
+  display: grid; grid-template-columns: 46px 1fr auto;
+  gap: 10px; padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.frecord .ts {
+  font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: 3px;
+}
+.frecord .fmeta { min-width: 0; }
+.frecord .fcat { font-weight: 600; font-size: 14px; }
+.frecord .fcat .sub { color: var(--muted); font-weight: 400; }
+.frecord .fnote { font-size: 13px; margin-top: 2px; }
+.frecord .fnote p { margin: .2em 0; }
+.frecord .fnote img { max-width: 100%; border-radius: 6px; cursor: zoom-in; }
+.frecord .famount {
+  font-family: var(--mono); font-weight: 700; font-size: 14px;
+  white-space: nowrap; padding-top: 2px; text-align: right;
+}
+.frecord .famount.income { color: #1f8a3b; }
+.frecord .famount.expense { color: #c52f2f; }
+.frecord .ftags { margin-top: 4px; }
+.frecord .imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.frecord .imgs img {
+  width: 110px; height: 74px; object-fit: cover; border-radius: 6px;
+  cursor: zoom-in; border: 1px solid var(--border);
+}
+.ftag {
+  display: inline-block; background: var(--accent-soft); color: var(--text);
+  font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-right: 4px;
+}
+
+/* ===== Pending (not-yet-synced) flag on entries ===== */
+.pendingflag {
+  display: inline-block; font-size: 11px; color: #8a6500;
+  background: #fff3d6; border: 1px solid #f0d8a0;
+  padding: 0 6px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+}
+
+/* ===== Form rows / checkboxes / categories ===== */
+.frow { display: flex; gap: 10px; }
+.frow > label { flex: 1; }
+.chk {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  font-size: 14px;
+}
+.chk input { width: auto; }
+.composerFootWrap { flex-wrap: wrap; }
+#categoriesList { display: flex; flex-direction: column; gap: 8px; }
+.catrow {
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px;
+}
+.catrow .catname { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.catrow .delcat { margin-left: auto; }
+.catrow .subs { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.subchip {
+  background: var(--surface-2); padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; display: inline-flex; align-items: center; gap: 4px;
+}
+.subchip button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0; }
+.catrow .addsub { margin-top: 4px; }
+
+/* ===== Print output ===== */
+#printArea { display: none; }
+@media print {
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block !important; color: #000; background: #fff; padding: 0; }
+  #printArea h1 { font-size: 18px; margin: 0 0 4px; }
+  #printArea .prange { color: #555; font-size: 12px; margin-bottom: 12px; }
+  #printArea h2 {
+    font-size: 14px; border-bottom: 1px solid #999;
+    margin: 20px 0 6px; padding-bottom: 2px;
+  }
+  #printArea .pday { font-weight: 700; margin-top: 10px; font-size: 12px; color: #333; }
+  #printArea .pentry { margin: 5px 0; page-break-inside: avoid; font-size: 12px; }
+  #printArea .ptime { font-family: monospace; color: #555; font-size: 11px; }
+  #printArea .pentry h3 { font-size: 13px; margin: 1px 0; display: inline; }
+  #printArea table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+  #printArea td, #printArea th { border: 1px solid #bbb; padding: 3px 6px; text-align: left; }
+  #printArea th { background: #eee; }
+  #printArea td.num { text-align: right; font-family: monospace; white-space: nowrap; }
+  #printArea .ptotals { margin-top: 8px; font-size: 12px; }
+  #printArea .ptotals strong { display: inline-block; min-width: 90px; }
+  #printArea img { max-width: 260px; max-height: 190px; margin: 3px 0; }
+}
+
 /* Mobile tweaks */
 @media (max-width: 540px) {
   #topbar { flex-wrap: wrap; }
   #topbar #search { order: 10; flex-basis: 100%; }
   #topbar .monthbtn { min-width: 90px; }
   .entry { grid-template-columns: 44px 1fr; gap: 8px; }
+  .frecord { grid-template-columns: 40px 1fr auto; gap: 8px; }
+  .frow { flex-direction: column; }
 }
