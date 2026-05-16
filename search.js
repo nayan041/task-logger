@@ -96,6 +96,13 @@ export function upsertEntry(entry, monthKey) {
   saveToCache();
 }
 
+// Remove an entry from the index (called after a delete).
+export function removeEntry(id) {
+  if (!indexState.loaded) return;
+  indexState.entries = indexState.entries.filter(e => e.id !== id);
+  saveToCache();
+}
+
 // Tokenise: supports `tag:foo`, `month:YYYY-MM`, free text.
 function parseQuery(q) {
   const out = { tag: null, month: null, terms: [] };

@@ -34,8 +34,9 @@
     <div id="viewSwitch" class="seg" role="tablist">
       <button type="button" data-view="notes" class="active">Notes</button>
       <button type="button" data-view="finance">Finance</button>
+      <button type="button" data-view="memory">Memory</button>
     </div>
-    <input id="search" type="search" placeholder="Search notes… (try: tag:foo)" autocomplete="off">
+    <input id="search" type="search" placeholder="Search…" autocomplete="off">
     <button id="pendingBadge" class="iconbtn pending" hidden aria-label="Pending sync">⏳ 0</button>
     <button id="newBtn" class="primary" aria-label="New entry">+ New</button>
     <button id="settingsBtn" class="iconbtn" aria-label="Settings">⚙</button>
@@ -66,7 +67,7 @@
   <dialog id="composer">
     <form method="dialog" id="composerForm">
       <header class="composerHead">
-        <strong>New note</strong>
+        <strong id="composerTitle">New note</strong>
         <span id="composerTime" class="ts">--:--</span>
         <button type="button" id="composerCancel" class="iconbtn" aria-label="Close">×</button>
       </header>
@@ -90,7 +91,7 @@
   <dialog id="financeComposer">
     <form method="dialog" id="financeForm">
       <header class="composerHead">
-        <strong>New finance record</strong>
+        <strong id="financeTitle">New finance record</strong>
         <span id="financeTime" class="ts">--:--</span>
         <button type="button" id="financeCancel" class="iconbtn" aria-label="Close">×</button>
       </header>
@@ -122,6 +123,34 @@
         </label>
         <span class="grow"></span>
         <button type="submit" class="primary" id="financeSave">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Memory composer -->
+  <dialog id="memoryComposer">
+    <form method="dialog" id="memoryForm">
+      <header class="composerHead">
+        <strong id="memoryTitle">New memory item</strong>
+        <button type="button" id="memoryCancel" class="iconbtn" aria-label="Close">×</button>
+      </header>
+      <label>Key
+        <input id="memoryKey" type="text" placeholder="e.g. WiFi password" required>
+      </label>
+      <label>Value type
+        <select id="memoryType">
+          <option value="text">Text</option>
+          <option value="number">Number</option>
+          <option value="date">Date</option>
+        </select>
+      </label>
+      <label>Value
+        <input id="memoryValue" type="text" placeholder="Value">
+      </label>
+      <div id="memoryHint" class="settingsStatus"></div>
+      <footer class="composerFoot">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="memorySave">Save</button>
       </footer>
     </form>
   </dialog>

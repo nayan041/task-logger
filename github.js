@@ -95,7 +95,10 @@ export async function loadMonth(yyyymm, folder = 'logs') {
   }
 }
 
-export async function saveMonth(yyyymm, entries, folder = 'logs') {
+// `removedIds` lists entry ids that were deleted. On a conflict re-merge, the
+// merge would otherwise resurrect a deleted entry from the remote copy, so we
+// explicitly drop them after merging.
+export async function saveMonth(yyyymm, entries, folder = 'logs', removedIds = []) {
   const path = `${folder}/${yyyymm}.json`;
   const sorted = [...entries].sort((a, b) => a.ts.localeCompare(b.ts));
   const bytes = utf8encode(JSON.stringify(sorted, null, 2) + '\n');
@@ -103,12 +106,16 @@ export async function saveMonth(yyyymm, entries, folder = 'logs') {
     return await putFile(path, bytes, `${folder}: ${entries.length} entries (${yyyymm})`);
   } catch (e) {
     if (e.status === 409 || e.status === 422) {
-      // Conflict: re-fetch, merge by id, retry once.
+      // Conflict: re-fetch, merge by id, drop deleted ids, retry once.
       shaCache.delete(path);
       const remote = await loadMonth(yyyymm, folder);
-      const merged = mergeById(remote, entries);
-      const mergedSorted = merged.sort((a, b) => a.ts.localeCompare(b.ts));
-      const mergedBytes = utf8encode(JSON.stringify(mergedSorted, null, 2) + '\n');
+      let merged = mergeById(remote, entries);
+      if (removedIds.length) {
+        const rm = new Set(removedIds);
+        merged = merged.filter(x => !rm.has(x.id));
+      }
+      merged.sort((a, b) => a.ts.localeCompare(b.ts));
+      const mergedBytes = utf8encode(JSON.stringify(merged, null, 2) + '\n');
       return await putFile(path, mergedBytes, `${folder}: merge conflict resolved (${yyyymm})`);
     }
     throw e;
@@ -130,6 +137,33 @@ export async function loadCategories() {
 export async function saveCategories(obj) {
   const bytes = utf8encode(JSON.stringify(obj, null, 2) + '\n');
   return putFile('config/categories.json', bytes, 'config: update categories');
+}
+
+// ----- Memory store (single key-value file, not tied to dates) -----
+export async function loadMemory() {
+  const file = await getFile('memory.json');
+  if (!file) return [];
+  try {
+    return JSON.parse(utf8decode(file.bytes));
+  } catch (e) {
+    console.error('Bad memory.json', e);
+    return [];
+  }
+}
+
+export async function saveMemory(items) {
+  const bytes = utf8encode(JSON.stringify(items, null, 2) + '\n');
+  try {
+    return await putFile('memory.json', bytes, 'memory: update');
+  } catch (e) {
+    if (e.status === 409 || e.status === 422) {
+      // Another device saved first — refresh sha and overwrite (last write wins).
+      shaCache.delete('memory.json');
+      await getFile('memory.json');
+      return await putFile('memory.json', bytes, 'memory: update (retry)');
+    }
+    throw e;
+  }
 }
 
 function mergeById(remote, local) {

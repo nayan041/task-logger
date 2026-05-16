@@ -326,6 +326,34 @@ dialog label:not(.filebtn):not(.chk) {
   font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-right: 4px;
 }
 
+/* ===== Entry action buttons (edit / delete) ===== */
+.entryhead { display: flex; align-items: flex-start; gap: 6px; }
+.entryhead .heading { flex: 1; margin: 0 0 4px; }
+.actions { display: flex; gap: 2px; flex-shrink: 0; }
+.actions button {
+  background: none; border: 0; cursor: pointer; font-size: 13px;
+  color: var(--muted); padding: 2px 5px; border-radius: 6px; line-height: 1;
+}
+.actions button:hover { background: var(--surface-2); color: var(--text); }
+.frecord .actions { margin-top: 4px; }
+
+/* ===== Memory items ===== */
+.memitem {
+  display: grid; grid-template-columns: 1fr auto;
+  gap: 8px; padding: 11px 0; align-items: start;
+  border-bottom: 1px dashed var(--border);
+}
+.memitem .mkey { font-weight: 600; font-size: 14px; }
+.memitem .mtype {
+  font-size: 10px; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 4px; margin-left: 6px; vertical-align: middle;
+}
+.memitem .mval {
+  font-family: var(--mono); font-size: 13px; color: var(--text);
+  margin-top: 3px; word-break: break-word; white-space: pre-wrap;
+}
+
 /* ===== Pending (not-yet-synced) flag on entries ===== */
 .pendingflag {
   display: inline-block; font-size: 11px; color: #8a6500;

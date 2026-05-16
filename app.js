@@ -1,5 +1,6 @@
 // TaskLog — main UI controller.
-// Handles two views (Notes + Finance), an offline sync queue, and printing.
+// Three views (Notes, Finance, Memory), an offline sync queue, edit/delete,
+// and printing.
 
 import * as gh from './github.js';
 import { render, highlight, extractTags } from './markdown.js';
@@ -17,20 +18,24 @@ const els = {
   timeline: $('timeline'), status: $('status'),
   iosHint: $('iosHint'), iosHintClose: $('iosHintClose'),
   // note composer
-  composer: $('composer'), composerForm: $('composerForm'),
+  composer: $('composer'), composerForm: $('composerForm'), composerTitle: $('composerTitle'),
   composerHeading: $('composerHeading'), composerBody: $('composerBody'),
   composerThumbs: $('composerThumbs'), composerFiles: $('composerFiles'),
   composerCancel: $('composerCancel'), composerSave: $('composerSave'),
   composerTime: $('composerTime'), composerPreview: $('composerPreview'),
   composerPreviewPane: $('composerPreviewPane'),
   // finance composer
-  financeComposer: $('financeComposer'), financeForm: $('financeForm'),
+  financeComposer: $('financeComposer'), financeForm: $('financeForm'), financeTitle: $('financeTitle'),
   financeTime: $('financeTime'), financeCancel: $('financeCancel'),
   financeType: $('financeType'),
   financeCategorySel: $('financeCategorySel'), financeSubcategorySel: $('financeSubcategorySel'),
   financeAmount: $('financeAmount'), financeTagsInput: $('financeTagsInput'),
   financeNote: $('financeNote'), financeThumbs: $('financeThumbs'),
   financeFiles: $('financeFiles'), financeHint: $('financeHint'), financeSave: $('financeSave'),
+  // memory composer
+  memoryComposer: $('memoryComposer'), memoryForm: $('memoryForm'), memoryTitle: $('memoryTitle'),
+  memoryKey: $('memoryKey'), memoryType: $('memoryType'), memoryValue: $('memoryValue'),
+  memoryHint: $('memoryHint'), memoryCancel: $('memoryCancel'), memorySave: $('memorySave'),
   // categories manager
   categories: $('categories'), categoriesForm: $('categoriesForm'),
   categoriesList: $('categoriesList'), newCategoryInput: $('newCategoryInput'),
@@ -55,26 +60,26 @@ const els = {
 
 // ----- State -----
 const state = {
-  view: 'notes',                  // 'notes' | 'finance'
+  view: 'notes',                  // 'notes' | 'finance' | 'memory'
   currentMonth: monthKey(new Date()),
   entries: [],                    // note entries for currentMonth
   financeRecords: [],             // finance records for currentMonth
-  activeTags: new Set(),          // notes tag filter
-  financeCategoryFilter: '',      // finance category filter
-  financeTags: new Set(),         // finance tag filter
-  financeType: 'expense',         // composer income/expense toggle
-  categories: {},                 // { category: [subcategory, ...] }
+  memory: [],                     // key-value memory items
+  activeTags: new Set(),
+  financeCategoryFilter: '',
+  financeTags: new Set(),
+  financeType: 'expense',
+  categories: {},
   searchQuery: '',
-  pendingImages: [],              // [{blob, name, url}] for the open composer
+  pendingImages: [],              // new images [{blob, name, url}]
+  keptImages: [],                 // existing images kept while editing [{path, alt}]
+  editing: null,                  // null | { kind, id, ts, month }
   pendingCount: 0,
 };
 
 // ----- Utilities -----
-// Timestamps are stored as UTC ISO strings (sortable); all day/month grouping
-// derives from LOCAL time so entries land on the day the user sees.
 const pad2 = n => String(n).padStart(2, '0');
 
-// Self-contained (no pad2 dep) — runs during `state` initialization.
 function monthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -118,6 +123,9 @@ function fmtTaka(n) {
 function uid(ts) {
   return `${ts}-${Math.random().toString(36).slice(2, 6)}`;
 }
+function genId(prefix) {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
@@ -128,7 +136,6 @@ function toast(msg, kind = '') {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { els.status.hidden = true; }, 3200);
 }
-// A network error (vs. a real HTTP error response like 401/409).
 function isNetworkError(e) {
   return !navigator.onLine || (e && e.name === 'TypeError');
 }
@@ -151,9 +158,12 @@ function setView(v) {
   localStorage.setItem('taskLogger.view', v);
   els.viewSwitch.querySelectorAll('button').forEach(b =>
     b.classList.toggle('active', b.dataset.view === v));
-  els.search.hidden = (v !== 'notes');
+  els.search.hidden = (v === 'finance');
+  els.search.placeholder = v === 'memory' ? 'Search memory…' : 'Search notes… (try: tag:foo)';
   els.financebar.hidden = (v !== 'finance');
   els.tagbar.hidden = true;
+  const monthNav = (v !== 'memory');   // Memory is not tied to a month
+  els.prevMonth.hidden = els.nextMonth.hidden = els.monthLabel.hidden = !monthNav;
   els.search.value = '';
   state.searchQuery = '';
   refresh();
@@ -165,6 +175,7 @@ function setMonth(key) {
 }
 function refresh() {
   if (state.view === 'finance') loadCurrentFinance();
+  else if (state.view === 'memory') loadMemoryData();
   else loadCurrentMonth();
 }
 els.viewSwitch.querySelectorAll('button').forEach(b => {
@@ -272,7 +283,7 @@ function renderTimeline() {
   els.timeline.appendChild(frag);
 }
 
-// Shared image helpers (used by both note entries and finance records).
+// Shared image helpers.
 function entryImages(entry) {
   return (entry._pending ? entry._pendingImages : entry.images) || [];
 }
@@ -292,6 +303,11 @@ function attachImages(wrap, entry) {
     wrap.appendChild(im);
   }
 }
+// Edit shown only for synced entries (pending ones sync away on their own).
+function actionsHtml(entry) {
+  const edit = entry._pending ? '' : '<button type="button" class="act-edit" title="Edit">✎</button>';
+  return `<span class="actions">${edit}<button type="button" class="act-del" title="Delete">🗑</button></span>`;
+}
 
 function renderEntry(entry, highlightTerm = '') {
   const div = document.createElement('article');
@@ -307,12 +323,17 @@ function renderEntry(entry, highlightTerm = '') {
   div.innerHTML = `
     <div class="ts">${fmtTime(entry.ts)}</div>
     <div>
-      <h3 class="heading">${headingHtml}${flag}</h3>
+      <div class="entryhead">
+        <h3 class="heading">${headingHtml}${flag}</h3>
+        ${actionsHtml(entry)}
+      </div>
       <div class="body">${bodyHtml}</div>
       ${entryImages(entry).length ? '<div class="imgs"></div>' : ''}
     </div>`;
   if (entryImages(entry).length) attachImages(div.querySelector('.imgs'), entry);
   div.addEventListener('click', ev => {
+    if (ev.target.closest('.act-edit')) { openComposer(entry); return; }
+    if (ev.target.closest('.act-del')) { deleteRecord('note', entry); return; }
     const a = ev.target.closest('a.hashtag');
     if (a) {
       ev.preventDefault();
@@ -333,13 +354,14 @@ function openLightbox(src) {
 }
 els.lightbox.onclick = () => els.lightbox.close();
 
-// ----- Search (notes only) -----
+// ----- Search -----
 let searchTimer = null;
 els.search.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     state.searchQuery = els.search.value;
-    if (state.searchQuery.trim()) renderSearchResults();
+    if (state.view === 'memory') renderMemoryView();
+    else if (state.searchQuery.trim()) renderSearchResults();
     else renderTimeline();
   }, 250);
 });
@@ -501,10 +523,13 @@ function renderFinanceRecord(r) {
       ${noteHtml ? `<div class="fnote">${noteHtml}</div>` : ''}
       ${tagsHtml ? `<div class="ftags">${tagsHtml}</div>` : ''}
       ${entryImages(r).length ? '<div class="imgs"></div>' : ''}
+      ${actionsHtml(r)}
     </div>
     <div class="famount ${r.type === 'income' ? 'income' : 'expense'}">${sign}${fmtTaka(r.amount)}</div>`;
   if (entryImages(r).length) attachImages(div.querySelector('.imgs'), r);
   div.addEventListener('click', ev => {
+    if (ev.target.closest('.act-edit')) { openFinanceComposer(r); return; }
+    if (ev.target.closest('.act-del')) { deleteRecord('finance', r); return; }
     const a = ev.target.closest('a.hashtag');
     if (a) {
       ev.preventDefault();
@@ -516,6 +541,153 @@ function renderFinanceRecord(r) {
     if (im) openLightbox(im.src);
   });
   return div;
+}
+
+// ===================================================================
+// MEMORY VIEW (key-value store, not tied to dates)
+// ===================================================================
+async function loadMemoryData() {
+  els.tagbar.hidden = true;
+  els.financebar.hidden = true;
+  if (!gh.isConfigured()) {
+    renderEmpty('Not configured. Open Settings to add your repo + PAT.');
+    return;
+  }
+  renderEmpty('Loading…');
+  try {
+    state.memory = await gh.loadMemory();
+    renderMemoryView();
+  } catch (e) {
+    console.error(e);
+    renderEmpty('Could not load memory. You may be offline.');
+  }
+}
+
+function fmtMemoryValue(it) {
+  if (it.value === '' || it.value == null) return '—';
+  if (it.type === 'date') {
+    const d = new Date(it.value + 'T00:00:00');
+    return isNaN(d) ? String(it.value) : d.toLocaleDateString();
+  }
+  return String(it.value);
+}
+
+function renderMemoryView() {
+  els.tagbar.hidden = true;
+  els.financebar.hidden = true;
+  let items = state.memory;
+  if (state.searchQuery.trim()) {
+    const q = state.searchQuery.toLowerCase();
+    items = items.filter(it =>
+      (it.key || '').toLowerCase().includes(q) ||
+      String(it.value ?? '').toLowerCase().includes(q));
+  }
+  items = [...items].sort((a, b) => (a.key || '').localeCompare(b.key || ''));
+  if (!items.length) {
+    renderEmpty(state.searchQuery.trim() ? 'No memory items match.' : 'No memory items yet. Tap + New.');
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const it of items) frag.appendChild(renderMemoryItem(it));
+  els.timeline.innerHTML = '';
+  els.timeline.appendChild(frag);
+}
+
+function renderMemoryItem(it) {
+  const div = document.createElement('article');
+  div.className = 'memitem';
+  div.innerHTML = `
+    <div>
+      <div class="mkey">${escapeHtml(it.key || '')}<span class="mtype">${escapeHtml(it.type || 'text')}</span></div>
+      <div class="mval">${escapeHtml(fmtMemoryValue(it))}</div>
+    </div>
+    <span class="actions">
+      <button type="button" class="act-edit" title="Edit">✎</button>
+      <button type="button" class="act-del" title="Delete">🗑</button>
+    </span>`;
+  div.querySelector('.act-edit').onclick = () => openMemoryComposer(it);
+  div.querySelector('.act-del').onclick = () => deleteMemory(it);
+  return div;
+}
+
+function applyMemoryValueType() {
+  const t = els.memoryType.value;
+  els.memoryValue.type = t === 'number' ? 'number' : t === 'date' ? 'date' : 'text';
+}
+els.memoryType.onchange = applyMemoryValueType;
+
+function openMemoryComposer(editItem = null) {
+  if (!gh.isConfigured()) {
+    toast('Configure repo + PAT in Settings first.', 'error');
+    openSettings(); return;
+  }
+  if (!navigator.onLine) { toast('Memory needs a connection to save.', 'error'); return; }
+  els.memoryHint.textContent = '';
+  if (editItem) {
+    state.editing = { kind: 'memory', id: editItem.id };
+    els.memoryTitle.textContent = 'Edit memory item';
+    els.memoryKey.value = editItem.key || '';
+    els.memoryType.value = editItem.type || 'text';
+    applyMemoryValueType();
+    els.memoryValue.value = editItem.value == null ? '' : String(editItem.value);
+  } else {
+    state.editing = null;
+    els.memoryTitle.textContent = 'New memory item';
+    els.memoryKey.value = '';
+    els.memoryType.value = 'text';
+    applyMemoryValueType();
+    els.memoryValue.value = '';
+  }
+  els.memoryComposer.showModal();
+  setTimeout(() => els.memoryKey.focus(), 50);
+}
+els.memoryCancel.onclick = () => els.memoryComposer.close();
+
+els.memoryForm.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const key = els.memoryKey.value.trim();
+  if (!key) return;
+  if (!navigator.onLine) { toast('Memory needs a connection.', 'error'); return; }
+  const type = els.memoryType.value;
+  const raw = els.memoryValue.value;
+  const value = type === 'number' ? (parseFloat(raw) || 0) : raw;
+  els.memorySave.disabled = true;
+  try {
+    const items = await gh.loadMemory();
+    if (state.editing && state.editing.kind === 'memory') {
+      const idx = items.findIndex(x => x.id === state.editing.id);
+      const updated = { id: state.editing.id, key, type, value };
+      if (idx >= 0) items[idx] = updated; else items.push(updated);
+    } else {
+      items.push({ id: genId('m'), key, type, value });
+    }
+    await gh.saveMemory(items);
+    state.memory = items;
+    state.editing = null;
+    els.memoryComposer.close();
+    toast('Saved.', 'ok');
+    if (state.view === 'memory') renderMemoryView();
+  } catch (e) {
+    console.error(e);
+    toast(e.message, 'error');
+  } finally {
+    els.memorySave.disabled = false;
+  }
+});
+
+async function deleteMemory(item) {
+  if (!confirm(`Delete memory item “${item.key}”?`)) return;
+  if (!navigator.onLine) { toast('Memory needs a connection.', 'error'); return; }
+  try {
+    const items = (await gh.loadMemory()).filter(x => x.id !== item.id);
+    await gh.saveMemory(items);
+    state.memory = items;
+    renderMemoryView();
+    toast('Deleted.', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast(e.message, 'error');
+  }
 }
 
 // ===================================================================
@@ -614,19 +786,36 @@ els.categoriesForm.addEventListener('submit', async ev => {
 // ===================================================================
 // IMAGE INPUT (shared by both composers)
 // ===================================================================
+function thumbForBlob(item, thumbsEl) {
+  const wrap = document.createElement('div');
+  wrap.className = 'thumb';
+  wrap.innerHTML = `<img src="${item.url}" alt=""><button type="button" aria-label="Remove">×</button>`;
+  wrap.querySelector('button').onclick = () => {
+    URL.revokeObjectURL(item.url);
+    state.pendingImages = state.pendingImages.filter(x => x !== item);
+    wrap.remove();
+  };
+  thumbsEl.appendChild(wrap);
+}
 function addPendingImage(file, thumbsEl) {
   const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const name = `${ts}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const url = URL.createObjectURL(file);
-  const item = { blob: file, name, url };
+  const item = { blob: file, name, url: URL.createObjectURL(file) };
   state.pendingImages.push(item);
+  thumbForBlob(item, thumbsEl);
+}
+// Existing (already-uploaded) image shown while editing; removable.
+function addKeptImageThumb(ref, thumbsEl) {
+  state.keptImages.push(ref);
   const wrap = document.createElement('div');
   wrap.className = 'thumb';
-  wrap.innerHTML = `<img src="${url}" alt=""><button type="button" aria-label="Remove">×</button>`;
+  wrap.innerHTML = '<img alt=""><button type="button" aria-label="Remove">×</button>';
+  gh.fetchImageBlob(ref.path)
+    .then(u => { wrap.querySelector('img').src = u; })
+    .catch(() => {});
   wrap.querySelector('button').onclick = () => {
-    URL.revokeObjectURL(url);
-    state.pendingImages = state.pendingImages.filter(x => x !== item);
+    state.keptImages = state.keptImages.filter(x => x !== ref);
     wrap.remove();
   };
   thumbsEl.appendChild(wrap);
@@ -640,6 +829,11 @@ function handleImagePaste(e, thumbsEl) {
     }
   }
 }
+function cleanupPendingImages() {
+  for (const im of state.pendingImages) URL.revokeObjectURL(im.url);
+  state.pendingImages = [];
+  state.keptImages = [];
+}
 els.composerFiles.addEventListener('change', e => {
   for (const f of e.target.files) addPendingImage(f, els.composerThumbs);
   e.target.value = '';
@@ -652,7 +846,7 @@ els.financeFiles.addEventListener('change', e => {
 els.financeNote.addEventListener('paste', e => handleImagePaste(e, els.financeThumbs));
 
 // ===================================================================
-// COMMIT (online → upload + save, offline → queue)
+// COMMIT (online → upload + save, offline → queue) + EDIT
 // ===================================================================
 async function commitEntry(kind, entry, pendingImages, targetMonth) {
   const folder = kind === 'finance' ? 'finance' : 'logs';
@@ -670,7 +864,6 @@ async function commitEntry(kind, entry, pendingImages, targetMonth) {
       return 'synced';
     } catch (e) {
       if (!isNetworkError(e)) throw e;
-      // network died mid-save → fall through and queue it
     }
   }
   await db.queueAdd({
@@ -678,6 +871,71 @@ async function commitEntry(kind, entry, pendingImages, targetMonth) {
     images: pendingImages.map(im => ({ name: im.name, blob: im.blob })),
   });
   return 'queued';
+}
+
+// Update an existing synced entry/record in place. Online only.
+async function saveEdit(kind, fields) {
+  if (!navigator.onLine) { toast('Editing needs a connection.', 'error'); return; }
+  const ed = state.editing;
+  const folder = kind === 'finance' ? 'finance' : 'logs';
+  const uploaded = [];
+  for (const im of state.pendingImages) {
+    const path = await gh.uploadImage(im.blob, im.name);
+    uploaded.push({ path, alt: '' });
+  }
+  const images = [...state.keptImages, ...uploaded];
+  let entry;
+  if (kind === 'note') {
+    entry = {
+      id: ed.id, ts: ed.ts, heading: fields.heading, body: fields.body,
+      tags: [...new Set([...extractTags(fields.heading), ...extractTags(fields.body)])],
+      images,
+    };
+  } else {
+    entry = {
+      id: ed.id, ts: ed.ts, type: fields.type, category: fields.category,
+      subcategory: fields.subcategory, amount: fields.amount, note: fields.note,
+      tags: fields.tags, images,
+    };
+  }
+  const all = await gh.loadMonth(ed.month, folder);
+  const idx = all.findIndex(x => x.id === ed.id);
+  if (idx >= 0) all[idx] = entry; else all.push(entry);
+  await gh.saveMonth(ed.month, all, folder);
+  if (kind === 'note') searchMod.upsertEntry(entry, ed.month);
+  cleanupPendingImages();
+  (kind === 'finance' ? els.financeComposer : els.composer).close();
+  state.editing = null;
+  toast('Updated.', 'ok');
+  refresh();
+}
+
+async function deleteRecord(kind, entry) {
+  const label = kind === 'finance' ? 'finance record' : 'note';
+  if (!confirm(`Delete this ${label}?`)) return;
+  if (entry._pending) {
+    try {
+      await db.queueRemove(entry._queueId);
+      await updatePendingBadge();
+      toast('Deleted.', 'ok');
+      refresh();
+    } catch (e) { console.error(e); toast(e.message, 'error'); }
+    return;
+  }
+  if (!navigator.onLine) { toast('Deleting a synced entry needs a connection.', 'error'); return; }
+  const folder = kind === 'finance' ? 'finance' : 'logs';
+  const month = monthOf(entry.ts);
+  try {
+    const all = await gh.loadMonth(month, folder);
+    const next = all.filter(x => x.id !== entry.id);
+    await gh.saveMonth(month, next, folder, [entry.id]);
+    if (kind === 'note') searchMod.removeEntry(entry.id);
+    toast('Deleted.', 'ok');
+    refresh();
+  } catch (e) {
+    console.error(e);
+    toast(e.message, 'error');
+  }
 }
 
 function afterCommit(kind, targetMonth, result) {
@@ -715,7 +973,6 @@ async function flushQueue() {
         if (item.kind === 'note') searchMod.upsertEntry(entry, item.month);
         synced++;
       } catch (e) {
-        // Keep this and remaining items; retry on the next online event.
         console.warn('Queue flush paused:', e);
         break;
       }
@@ -744,18 +1001,32 @@ window.addEventListener('offline', () => toast('Offline — new entries will be 
 // ===================================================================
 // NOTE COMPOSER
 // ===================================================================
-function openComposer() {
+function openComposer(editEntry = null) {
   if (!gh.isConfigured()) {
     toast('Configure repo + PAT in Settings first.', 'error');
     openSettings(); return;
   }
-  els.composerHeading.value = '';
-  els.composerBody.value = '';
+  if (editEntry && !navigator.onLine) {
+    toast('Editing a synced note needs a connection.', 'error'); return;
+  }
+  cleanupPendingImages();
   els.composerThumbs.innerHTML = '';
   els.composerPreviewPane.hidden = true;
   els.composerPreviewPane.innerHTML = '';
-  state.pendingImages = [];
-  els.composerTime.textContent = fmtClock();
+  if (editEntry) {
+    state.editing = { kind: 'note', id: editEntry.id, ts: editEntry.ts, month: monthOf(editEntry.ts) };
+    els.composerTitle.textContent = 'Edit note';
+    els.composerHeading.value = editEntry.heading || '';
+    els.composerBody.value = editEntry.body || '';
+    els.composerTime.textContent = fmtTime(editEntry.ts);
+    for (const img of (editEntry.images || [])) addKeptImageThumb(img, els.composerThumbs);
+  } else {
+    state.editing = null;
+    els.composerTitle.textContent = 'New note';
+    els.composerHeading.value = '';
+    els.composerBody.value = '';
+    els.composerTime.textContent = fmtClock();
+  }
   els.composer.showModal();
   setTimeout(() => els.composerHeading.focus(), 50);
 }
@@ -777,16 +1048,19 @@ els.composerForm.addEventListener('submit', async ev => {
   if (!heading) return;
   els.composerSave.disabled = true;
   try {
-    const ts = new Date().toISOString();
-    const tags = [...new Set([...extractTags(heading), ...extractTags(body)])];
-    const entry = { id: uid(ts), ts, heading, body, tags, images: [] };
-    const targetMonth = monthOf(ts);
-    const result = await commitEntry('note', entry, state.pendingImages, targetMonth);
-    if (result === 'synced') searchMod.upsertEntry(entry, targetMonth);
-    for (const im of state.pendingImages) URL.revokeObjectURL(im.url);
-    state.pendingImages = [];
-    els.composer.close();
-    afterCommit('note', targetMonth, result);
+    if (state.editing && state.editing.kind === 'note') {
+      await saveEdit('note', { heading, body });
+    } else {
+      const ts = new Date().toISOString();
+      const tags = [...new Set([...extractTags(heading), ...extractTags(body)])];
+      const entry = { id: uid(ts), ts, heading, body, tags, images: [] };
+      const targetMonth = monthOf(ts);
+      const result = await commitEntry('note', entry, state.pendingImages, targetMonth);
+      if (result === 'synced') searchMod.upsertEntry(entry, targetMonth);
+      cleanupPendingImages();
+      els.composer.close();
+      afterCommit('note', targetMonth, result);
+    }
   } catch (e) {
     console.error(e);
     toast(e.message, 'error');
@@ -826,23 +1100,52 @@ function populateFinanceSubcategories() {
 }
 els.financeCategorySel.onchange = populateFinanceSubcategories;
 
-function openFinanceComposer() {
+// Make sure a value is selectable even if it's no longer in the category list
+// (can happen when editing an old record after categories changed).
+function ensureOption(sel, val) {
+  if (!val) return;
+  if (![...sel.options].some(o => o.value === val)) sel.add(new Option(val, val));
+  sel.value = val;
+}
+
+function openFinanceComposer(editEntry = null) {
   if (!gh.isConfigured()) {
     toast('Configure repo + PAT in Settings first.', 'error');
     openSettings(); return;
   }
-  state.financeType = 'expense';
-  updateTypeSeg();
-  populateFinanceCategories();
-  els.financeAmount.value = '';
-  els.financeTagsInput.value = '';
-  els.financeNote.value = '';
+  if (editEntry && !navigator.onLine) {
+    toast('Editing a synced record needs a connection.', 'error'); return;
+  }
+  cleanupPendingImages();
   els.financeThumbs.innerHTML = '';
-  state.pendingImages = [];
-  els.financeTime.textContent = fmtClock();
   const hasCats = Object.keys(state.categories || {}).length > 0;
   els.financeHint.textContent = hasCats ? '' : 'No categories yet — add some in Settings → Manage categories.';
   els.financeHint.className = 'settingsStatus' + (hasCats ? '' : ' error');
+  if (editEntry) {
+    state.editing = { kind: 'finance', id: editEntry.id, ts: editEntry.ts, month: monthOf(editEntry.ts) };
+    els.financeTitle.textContent = 'Edit finance record';
+    state.financeType = editEntry.type === 'income' ? 'income' : 'expense';
+    updateTypeSeg();
+    populateFinanceCategories();
+    ensureOption(els.financeCategorySel, editEntry.category);
+    populateFinanceSubcategories();
+    ensureOption(els.financeSubcategorySel, editEntry.subcategory);
+    els.financeAmount.value = editEntry.amount != null ? String(editEntry.amount) : '';
+    els.financeTagsInput.value = (editEntry.tags || []).join(' ');
+    els.financeNote.value = editEntry.note || '';
+    els.financeTime.textContent = fmtTime(editEntry.ts);
+    for (const img of (editEntry.images || [])) addKeptImageThumb(img, els.financeThumbs);
+  } else {
+    state.editing = null;
+    els.financeTitle.textContent = 'New finance record';
+    state.financeType = 'expense';
+    updateTypeSeg();
+    populateFinanceCategories();
+    els.financeAmount.value = '';
+    els.financeTagsInput.value = '';
+    els.financeNote.value = '';
+    els.financeTime.textContent = fmtClock();
+  }
   els.financeComposer.showModal();
 }
 els.financeCancel.onclick = () => els.financeComposer.close();
@@ -856,20 +1159,23 @@ els.financeForm.addEventListener('submit', async ev => {
   if (!(amount > 0)) { toast('Enter an amount greater than 0.', 'error'); return; }
   els.financeSave.disabled = true;
   try {
-    const ts = new Date().toISOString();
     const inputTags = els.financeTagsInput.value
       .split(/[\s,]+/).map(t => t.replace(/^#/, '').toLowerCase()).filter(Boolean);
     const tags = [...new Set([...inputTags, ...extractTags(note)])];
-    const record = {
-      id: uid(ts), ts, type: state.financeType,
-      category, subcategory, amount, note, tags, images: [],
-    };
-    const targetMonth = monthOf(ts);
-    const result = await commitEntry('finance', record, state.pendingImages, targetMonth);
-    for (const im of state.pendingImages) URL.revokeObjectURL(im.url);
-    state.pendingImages = [];
-    els.financeComposer.close();
-    afterCommit('finance', targetMonth, result);
+    if (state.editing && state.editing.kind === 'finance') {
+      await saveEdit('finance', { type: state.financeType, category, subcategory, amount, note, tags });
+    } else {
+      const ts = new Date().toISOString();
+      const record = {
+        id: uid(ts), ts, type: state.financeType,
+        category, subcategory, amount, note, tags, images: [],
+      };
+      const targetMonth = monthOf(ts);
+      const result = await commitEntry('finance', record, state.pendingImages, targetMonth);
+      cleanupPendingImages();
+      els.financeComposer.close();
+      afterCommit('finance', targetMonth, result);
+    }
   } catch (e) {
     console.error(e);
     toast(e.message, 'error');
@@ -880,6 +1186,7 @@ els.financeForm.addEventListener('submit', async ev => {
 
 function openNew() {
   if (state.view === 'finance') openFinanceComposer();
+  else if (state.view === 'memory') openMemoryComposer();
   else openComposer();
 }
 els.newBtn.onclick = openNew;
@@ -1088,7 +1395,7 @@ els.iosHintClose.onclick = () => {
 document.addEventListener('keydown', ev => {
   if (ev.target.matches('input,textarea,select')) return;
   if (ev.key === 'n' || ev.key === 'N') { ev.preventDefault(); openNew(); }
-  if (ev.key === '/' && state.view === 'notes') { ev.preventDefault(); els.search.focus(); }
+  if (ev.key === '/' && state.view !== 'finance') { ev.preventDefault(); els.search.focus(); }
 });
 
 // ----- Boot -----
