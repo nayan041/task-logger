@@ -28,6 +28,7 @@ exists.
 14. [Step 10 — Deploying to the internet](#step-10--deploying-to-the-internet)
 15. [JavaScript concepts cheat-sheet](#javascript-concepts-cheat-sheet)
 16. [Common bugs we hit (and what they taught us)](#common-bugs-we-hit)
+17. [What we added after v1](#what-we-added-after-v1)
 
 ---
 
@@ -702,16 +703,171 @@ startup and needs value B, B must be defined above the startup code.
 
 ---
 
+## What we added after v1
+
+The initial version covered notes. Then we kept building. Here is what each
+round added — and the new concepts each one introduced.
+
+---
+
+### Round 2 — Finance tracking + offline sync
+
+**New file: `db.js`** — an IndexedDB wrapper for the offline queue.
+
+**New concepts introduced:**
+
+**IndexedDB** — a browser database that can store structured data and binary
+blobs (like images). Unlike `localStorage` (strings only, ~5 MB limit),
+IndexedDB can hold megabytes of image data. We use it as a **queue**: entries
+are added when offline, and removed once they sync to GitHub.
+
+```js
+// Simplified — the real code has more error handling
+const db = indexedDB.open('taskLogger', 1);
+db.onupgradeneeded = () => {
+  db.result.createObjectStore('queue', { keyPath: 'queueId', autoIncrement: true });
+};
+```
+
+**The offline pattern:** when a save fails due to no network, the entry
+(including image blobs) goes into IndexedDB. When the browser fires the
+`'online'` event, we "flush" the queue — uploading each entry to GitHub one by
+one.
+
+**Finance data model:** finance records are almost identical to notes but have
+`type` (income/expense), `category`, `subcategory`, `amount`, and live in a
+separate folder (`finance/YYYY-MM.json`).
+
+**Print/Export:** the `@media print` CSS rule hides everything except
+`#printArea`, then `window.print()` opens the browser's print dialog. The user
+can "Save as PDF" from there.
+
+---
+
+### Round 3 — Memory store + edit/delete
+
+**New concept: edit-in-place.**
+
+Editing means: load the entry into the same composer form, change
+`state.editing` to track *what* we are editing, and on save, replace the old
+entry (matched by `id`) instead of appending a new one.
+
+```js
+// Editing state
+state.editing = { kind: 'note', id: 'abc123', ts: '...', month: '2026-05' };
+
+// On save: update the array instead of push
+const idx = all.findIndex(x => x.id === state.editing.id);
+if (idx >= 0) all[idx] = updatedEntry;
+```
+
+**Conflict-safe delete:** when deleting, we pass `removedIds` to `saveMonth()`.
+If a 409 conflict happens and we re-merge, the merge explicitly drops the
+deleted ids — preventing a "zombie" entry from coming back.
+
+**Memory store:** a flat array in `memory.json` (not month-based). Each item
+has `key`, `type` (text/number/date), and `value`. Simple CRUD operations.
+
+---
+
+### Round 4 — Mobile UI overhaul
+
+**New concepts introduced:**
+
+**FAB (Floating Action Button):** a circular button fixed at the bottom-right
+of the screen. Common in Material Design. Hidden on desktop (CSS
+`display: none`), shown on mobile via `@media (max-width: 540px)`.
+
+**CSS `env()` function:** `env(safe-area-inset-top)` gives the height of the
+iPhone notch or Android status bar. We use it to add padding so content doesn't
+hide behind system UI in standalone PWA mode.
+
+```css
+.fab {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  right: 20px;
+}
+```
+
+**`datetime-local` input:** an HTML input type that shows a date+time picker.
+We use it to let users change an entry's timestamp when editing:
+
+```html
+<input type="datetime-local" id="composerDate">
+```
+
+**Reveal-on-interaction pattern:** edit/delete buttons are hidden by default
+(`opacity: 0`) and revealed on `hover` (desktop) or tap (mobile via a
+`.show-actions` CSS class toggled by JavaScript).
+
+**Offline memory cache:** memory items are saved to `localStorage` on each
+successful load. When loading fails (offline), we show the cached version with
+a toast notification.
+
+**Daily journal prompt:** a timer checks every 60 seconds — if the configured
+prompt time has passed today and the user hasn't dismissed the prompt, a banner
+appears. Uses `localStorage` to track the dismissed date.
+
+---
+
+### Round 5 — Speed dial, image resize, polish
+
+**New concepts introduced:**
+
+**Speed dial menu:** the FAB `+` now opens a popup with three options (Note,
+Finance, Memory) instead of directly opening one composer. The `+` rotates to
+`x` using a CSS `transform: rotate(45deg)` transition.
+
+**Canvas-based image resize:** before uploading, large images are drawn onto an
+off-screen `<canvas>` at reduced dimensions, then exported as a blob:
+
+```js
+async function resizeImageBlob(blob, maxDim) {
+  const img = new Image();
+  img.src = URL.createObjectURL(blob);
+  await img.decode();   // wait until loaded
+  const scale = maxDim / Math.max(img.width, img.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width * scale;
+  canvas.height = img.height * scale;
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+}
+```
+
+**CSS `::before` flex break:** to force the view tabs onto their own row in a
+flex-wrap container, we insert an invisible pseudo-element with
+`flex-basis: 100%` between the month nav and the tabs:
+
+```css
+#topbar::before {
+  content: ''; order: 7;
+  flex-basis: 100%; height: 0;
+}
+```
+
+**CSS Grid for finance summary:** on mobile, the income/expense/net summary
+uses `grid-template-columns: 1fr 1fr 1fr` to keep three columns aligned even
+when amounts have many digits.
+
+---
+
 ## Where to go next
 
-You now understand a complete, real PWA. To deepen your skills:
+You now understand a complete, real PWA that evolved through six rounds of
+features. To deepen your skills:
 
 - **Read the actual files** in this project alongside this guide. Every concept
   above is in there, in context.
+- **Read `FEATURES.md`** for a complete catalog of every feature, data model,
+  and technical term used in this project.
 - **Break things on purpose.** Change a color, delete a line, see the error.
   Fixing your own breakage is the fastest way to learn.
-- **Add a feature.** Try: an "edit entry" button, or a word count, or a new
-  theme. Small additions teach more than tutorials.
+- **Add a feature.** Ideas: spending charts, recurring entries, data export to
+  CSV, dark mode auto-detection. Small additions teach more than tutorials.
+- **Share it.** The PWA works for anyone with their own GitHub repo + PAT — no
+  server needed. See `FEATURES.md` → "Multi-user access" for details.
 
 Good references:
 - [MDN Web Docs](https://developer.mozilla.org/) — the encyclopedia of web tech.

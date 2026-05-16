@@ -629,6 +629,11 @@ function renderMemoryView() {
     return;
   }
   const frag = document.createDocumentFragment();
+  // Show today's date at the top
+  const todayHead = document.createElement('div');
+  todayHead.className = 'dayhead';
+  todayHead.textContent = fmtDayHead(ymd(new Date()));
+  frag.appendChild(todayHead);
   for (const it of items) frag.appendChild(renderMemoryItem(it));
   els.timeline.innerHTML = '';
   els.timeline.appendChild(frag);

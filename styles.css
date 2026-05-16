@@ -284,7 +284,8 @@ dialog label:not(.filebtn):not(.chk) {
   padding: 10px 14px; font-size: 14px;
   max-width: 760px; margin: 0 auto;
 }
-.financeSummary .lbl { color: var(--muted); margin-right: 4px; }
+.financeSummary > span { display: flex; flex-direction: column; }
+.financeSummary .lbl { color: var(--muted); margin-right: 4px; font-size: 11px; }
 .amt-income { color: #1f8a3b; font-weight: 600; }
 .amt-expense { color: #c52f2f; font-weight: 600; }
 .amt-net { font-weight: 700; }
@@ -518,6 +519,15 @@ dialog label:not(.filebtn):not(.chk) {
   /* FAB replaces top-bar New button */
   .fab { display: flex; align-items: center; justify-content: center; }
   #newBtn { display: none !important; }
+  /* Finance summary: 3 equal columns so large numbers stay aligned */
+  .financeSummary {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    text-align: center;
+    font-size: 13px;
+  }
+  .financeSummary > span { align-items: center; }
   .entry { grid-template-columns: 44px 1fr; gap: 8px; }
   .frecord { grid-template-columns: 40px 1fr auto; gap: 8px; }
   .frow { flex-direction: column; }
